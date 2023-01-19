@@ -7,6 +7,7 @@ import math
 import time
 import cv2
 # import scipy.misc
+import threadpool
 
 from plyfile import *
 
@@ -363,7 +364,10 @@ reverse_displacement_field_s=np.zeros((len(xyzs),3))
 
 lablist=np.zeros((len(xyznew),3))
 print(len(element_list))
-for e in element_list:
+
+# 这里我实在是没法做测试，计算太久了，这部分是改成并行计算的代码，你测试一下吧，有用就留着，没用就删了，把下面注释的原始代码取消注释就行
+def element_for(e):
+    global count
     if count%100==0:
         print(count)
     count+=1
@@ -406,6 +410,56 @@ for e in element_list:
             # print('1')
             # lablist[i]=lab
             reverse_displacement_field_s[i]=displacement
+
+element_pool = threadpool.ThreadPool(10)
+requests = threadpool.makeRequests(element_for, element_list)
+[element_pool.putRequest(req) for req in requests]
+element_pool.wait()
+# 删除的话，删到这里，取消注释下面的
+
+# for e in element_list:
+#     if count%100==0:
+#         print(count)
+#     count+=1
+#     ps=[xyz5[pi-1] for pi in e]
+#     psf=[xyz4[pi-1] for pi in e]
+#     xs=[p[0] for p in psf]
+#     ys=[p[1] for p in psf]
+    
+#     ind1=np.where((xyznew[:,0]>=min(xs))&(xyznew[:,0]<=max(xs)))
+#     temp1=xyznew[ind1]
+#     ind2=np.where((temp1[:,1]>=min(ys))&(temp1[:,1]<=max(ys)))
+#     temp2=temp1[ind2]
+#     ind=ind1[0][ind2]
+#     #print(ind)
+#     local_points=xyznew[ind]
+#     element_displacement=[df[pi-1] for pi in e]
+#     pl=[]
+#     for i in ind:
+#         p=xyznew[i]
+#         pl.append(p)
+#         intriangle,displacement=triangle_interpolation(p,psf,element_displacement)
+#         if intriangle:
+#             # print('1')
+#             # lablist[i]=lab
+#             reverse_displacement_field[i]=displacement
+            
+#     inds1=np.where((xyzs[:,0]>=min(xs))&(xyzs[:,0]<=max(xs)))
+#     temps1=xyzs[inds1]
+#     inds2=np.where((temps1[:,1]>=min(ys))&(temps1[:,1]<=max(ys)))
+#     temps2=temps1[inds2]
+#     inds=inds1[0][inds2]
+#     local_points_s=xyzs[inds]
+#     # element_displacement_s=[df[pi-1] for pi in e]
+#     pls=[]
+#     for i in inds:
+#         p=xyzs[i]
+#         pls.append(p)
+#         intriangle,displacement=triangle_interpolation(p,psf,element_displacement)
+#         if intriangle:
+#             # print('1')
+#             # lablist[i]=lab
+#             reverse_displacement_field_s[i]=displacement
     
 et=time.time()
 print(et-st)
