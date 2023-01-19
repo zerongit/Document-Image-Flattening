@@ -10,7 +10,9 @@ import os
 # import scipy.misc
 import networkx as nw
 from plyfile import *
+import threadpool
 
+start = time.time()
 print('begin')
 
 f=open('./config.txt','r')
@@ -295,6 +297,7 @@ def reverse_coordinate(pcd,A,offset,theta):
     pcdc.vertices=o3d.utility.Vector3dVector(xyz)
     return pcdc
 #%%
+start_loading = time.time()
 print('loading pcd')
 # pcd=o3d.io.read_triangle_mesh(filename)
 # xyz=np.asarray(pcd.vertices)
@@ -321,8 +324,9 @@ xyzo=np.array([xlist,ylist,zlist])
 xyzo=xyzo.transpose()
 mean=np.mean(xyzo,axis=0)
 
-for i in range(xyzo.shape[0]):
-    xyzo[i]=xyzo[i]-mean
+# for i in range(xyzo.shape[0]):
+#     xyzo[i]=xyzo[i]-mean
+xyzo -= mean
 
 if plytype=='pointcloud':
     rlist = plydata['vertex']['red']
@@ -335,8 +339,11 @@ if plytype=='pointcloud':
 else:
     pcdo.vertices=o3d.utility.Vector3dVector(xyzo)
 
+print('loading pcd: ', time.time()-start_loading)
+
 #%%
-print('rigid ransforming')
+start_rigid = time.time()
+print('rigid transforming')
 #平面拟合,旋转
 X=copy.deepcopy(xyzo)
 X[:,2]=1
@@ -358,9 +365,11 @@ pcd1.rotate(R,center=(0,0,0))
 
 # o3d.visualization.draw_geometries([pcd,pcd1],mesh_show_wireframe=True,mesh_show_back_face=True)
 
+print('rigid transforming: ', time.time()-start_rigid)
 
 #%%
 #点云投影转图片
+start_projection = time.time()
 print('projection')
 if plytype=='trianglemesh':
     resolution=[300,400]
@@ -396,8 +405,11 @@ projectionimg=projectionimg.astype(np.uint8)
 # cv2.imwrite(path+'/temp.png',projectionimg)
 # cv2.imwrite(path+'/gray.png',img_gray)
 
+print('projection: ', time.time()-start_projection)
+
 #%%
 #提取网格边界
+start_extract = time.time()
 print('extract edges')
 if plytype=='trianglemesh':
     edge_manifold_boundary = pcd1.is_edge_manifold(allow_boundary_edges=False)
@@ -423,15 +435,25 @@ if plytype=='trianglemesh':
             cv2.line(projectionimg, (x1, y1), (x2, y2), 255, 2)
             # print((x1, y1), (x2, y2))
             cv2.imwrite(path+'/temp.png',projectionimg)
-            
+
 elif plytype=='pointcloud':
+    start_extract1 = time.time()
+    # print(xyz1.shape, dp, margin, minx, maxy, projectionimg.shape)
+    label_list = np.zeros(projectionimg.shape[:2])
     for i in range(len(xyz1)):
-        p=xyz1[i]
-        c=rgbo[i]*255
-        pixelx=int((p[0]-minx)/dp)-1+margin
-        pixely=int((maxy-p[1])/dp)-1+margin
-        projectionimg[pixely][pixelx]=c
-    projectionimg=projectionimg.astype(np.uint8) 
+        lx = int((xyz1[i][0]-minx)/dp)-1
+        ly = int((maxy-xyz1[i][0])/dp)-1
+        if not label_list[lx, ly]:
+            projectionimg[lx+margin][ly+margin] = rgbo[i]*255
+            label_list[lx][ly] = 1
+    # for i in range(len(xyz1)):
+    #     p=xyz1[i]
+    #     c=rgbo[i]*255
+    #     pixelx=int((p[0]-minx)/dp)-1+margin
+    #     pixely=int((maxy-p[1])/dp)-1+margin
+    #     projectionimg[pixely][pixelx]=c
+    projectionimg=projectionimg.astype(np.uint8)
+    print('extract1: ', time.time()-start_extract1)
     
     img_gray = cv2.cvtColor(projectionimg,cv2.COLOR_BGR2GRAY)
     maskindex=np.where(img_gray==0)
@@ -517,6 +539,8 @@ V=np.int64(V)
 cv2.drawContours(cimg,[V],-1,125,3)  
 cv2.imwrite(path+'/edge detection.png',cimg)
 
+print('extract: ', time.time()-start_extract)
+
 #%%
 # imgcopy=copy.deepcopy(projectionimg)
 # cv2.drawContours(imgcopy,cnt,-1,125,3)  
@@ -541,6 +565,7 @@ cv2.imwrite(path+'/edge detection.png',cimg)
 
 #%%
 #像素转坐标
+start_pixel = time.time()
 print('pixels to coords')
 midx=0
 midy=0
@@ -611,10 +636,14 @@ xyz3=xyz3/scalefactor
 pcd3=o3d.geometry.PointCloud()
 pcd3.points=o3d.utility.Vector3dVector(xyz3)
 pcd3.colors=o3d.utility.Vector3dVector(rgb3)
+
+print('pixel to coords: ', time.time()-start_pixel)
+
 #%%
 # o3d.visualization.draw_geometries([pcd3])
 #%%
 #网格采样
+start_mesh = time.time()
 print('mesh sampling')
 # cellsize=0.008
 # xlim=[min(xyz3[:,0]),max(xyz3[:,0])]
@@ -640,7 +669,7 @@ indexs=np.zeros((nx*ny))
 sample_list=[]
 sample_list_rgb=[]
 sample_index=[]
-# print(nx)
+# print(nx, ny)
 for i in range(nx):
     # print(i)
     ind1=np.where((xyz3[:,0]>=xlim[0]+i*cellsize)&(xyz3[:,0]<xlim[0]+(i+1)*cellsize))
@@ -715,9 +744,12 @@ for i in range(nx):
                 #print(i)
         #print(counter)
 
+print('mesh sampling: ', time.time()-start_mesh)
+
 #%%
 #计算采样点曲率
 #zx,nx,ny
+start_filtering = time.time()
 print('filtering')
 xyz4=np.array(sample_list)
 # rgb4=np.array(sample_list_rgb)
@@ -756,7 +788,10 @@ for i in range(nx):
 cv2.imwrite(path+'/beforeGB.png',imgs)
 cv2.imwrite(path+'/afterGB.png',imgs1)
 
+print('filtering: ', time.time()-start_filtering)
+
 #%%
+start_calculating = time.time()
 print('calculating curvature')
 # xyz4c=copy.deepcopy(sample_list)
 zxl=[]
@@ -851,7 +886,7 @@ cv2.imwrite(path+'/c_scratch.png',r_scratch)
 # cv2.waitKey()
 # cv2.destroyAllWindows()
 
-
+print('calculating curvature: ', time.time()-start_calculating)
 
 #%%
 # pcd4t=o3d.geometry.PointCloud()
@@ -861,6 +896,7 @@ cv2.imwrite(path+'/c_scratch.png',r_scratch)
 
 #%%
 #标记折痕和端点
+start_labeling = time.time()
 print('labeling scratch')
 kernel1=np.ones((3,3),np.uint8)
 kernel2=np.ones((3,3),np.uint8)
@@ -918,8 +954,12 @@ for l in slines:
     # print(cptl)
     # print(cptl)
     cptlist.append(cptl)
+
+print('labeling scratch: ', time.time()-start_labeling)
+
 #%%
 #seeding
+start_seeding = time.time()
 print('seeding')
 num=int(nx*0.2)
 msize=0.4
@@ -1119,8 +1159,12 @@ else:
     seedlist2[1]=list(set(seedlist2[1]))
     seedlist2[1].sort()
     seedlist2[3].sort()
+
+print('seeding: ', time.time() - start_seeding)
+
 #%%
 #meshing
+start_meshing = time.time()
 print('meshing')
 nmx=len(seedlist2[1])
 nmy=len(seedlist2[0])
@@ -1134,7 +1178,9 @@ sample_list=[]
 sample_list_rgb=[]
 sample_index=[]
 
-for i in range(nmx):
+start_meshing2 = time.time()
+
+def mesh_for(i):
     for j in range(nmy):
         l1=[0,seedlist2[0][j],nx,seedlist2[2][j]]
         l2=[seedlist2[1][i],0,seedlist2[3][i],ny]
@@ -1201,12 +1247,20 @@ for i in range(nmx):
             indexs[i*ny+j]=1
             counter+=1
             sample_index.append([i,j])
+
+mesh_pool = threadpool.ThreadPool(10)
+requests = threadpool.makeRequests(mesh_for, np.arange(nmx))
+[mesh_pool.putRequest(req) for req in requests]
+mesh_pool.wait()
+
+print('meshing2:', time.time() - start_meshing2)
+
 xyz4=np.array(sample_list)
 #%%
 #coords of scratchmask
 scratchlist=[]
 scratchrgb=[]
-print(len(scratchmask[0]))
+# print(len(scratchmask[0]))
 for i in range(len(scratchmask[0])):
     xp=scratchmask[1][i]
     yp=scratchmask[0][i]
@@ -1337,7 +1391,10 @@ pcdt.rotate(Rotation,center=(0,0,0))
 
 Translation=np.array([[1,0,0,mean[0]],[0,1,0,mean[1]],[0,0,1,mean[2]],[0,0,0,1]])
 
+print('meshing: ', time.time() - start_meshing)
+
 #%%
+start_saving = time.time()
 print('saving')
 element_list=[]
 element_arr=[]
@@ -1409,6 +1466,11 @@ o3d.io.write_point_cloud(path+'/interpcd_o.ply',pcd3,write_ascii= True)
 o3d.io.write_point_cloud(path+'/interpcd_s.ply',pcds,write_ascii= True)
 #%%
 print('pre processing done')
+
+print('saving: ', time.time() - start_saving)
+
+print('total time consumption', time.time() - start)
+
 #%%
 # o3d.visualization.draw_geometries([interpcd_r_mesh,pcdf],mesh_show_wireframe=True,mesh_show_back_face=True)
 # o3d.visualization.draw_geometries([interpcd_r_mesh,pcd],mesh_show_wireframe=True,mesh_show_back_face=True)
