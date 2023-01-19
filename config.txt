@@ -1,0 +1,8 @@
+*path
+input pcd,G:\OS FEM Flatten\pack0801\test1208\m2\booksence_dense_mesh.ply
+working directory,G:\OS FEM Flatten\pack0801\test1208\m2\temp
+output path,G:\OS FEM Flatten\pack0801\test1208\m2\result
+*params
+mx,80
+nx,1600
+densify,0
